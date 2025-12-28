@@ -1,0 +1,310 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+
+    /* Enterprise Indigo */
+    --primary: 221.2 83.2% 53.3%;
+    --primary-foreground: 210 40% 98%;
+
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 221.2 83.2% 53.3%;
+
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+
+    /* Enterprise Indigo (Dark Mode) */
+    --primary: 217.2 91.2% 59.8%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 217.2 91.2% 59.8%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+@layer utilities {
+
+  /* Smooth transitions */
+  .transition-smooth {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /* Hover lift effect */
+  .hover-lift {
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .hover-lift:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+  }
+
+  /* Ripple effect */
+  @keyframes ripple {
+    0% {
+      transform: scale(0);
+      opacity: 1;
+    }
+
+    100% {
+      transform: scale(4);
+      opacity: 0;
+    }
+  }
+
+  .ripple {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .ripple::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.5);
+    transform: translate(-50%, -50%);
+    transition: width 0.6s, height 0.6s;
+  }
+
+  .ripple:active::after {
+    width: 200px;
+    height: 200px;
+  }
+
+  /* Shimmer effect */
+  @keyframes shimmer {
+    0% {
+      background-position: -1000px 0;
+    }
+
+    100% {
+      background-position: 1000px 0;
+    }
+  }
+
+  .shimmer {
+    background: linear-gradient(90deg,
+        rgba(255, 255, 255, 0) 0%,
+        rgba(255, 255, 255, 0.2) 50%,
+        rgba(255, 255, 255, 0) 100%);
+    background-size: 1000px 100%;
+    animation: shimmer 2s infinite;
+  }
+
+  /* Fade in animation */
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .animate-fade-in {
+    animation: fadeIn 0.5s ease-out;
+  }
+
+  /* Slide in from left */
+  @keyframes slideInLeft {
+    from {
+      opacity: 0;
+      transform: translateX(-100px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
+  .animate-slide-in-left {
+    animation: slideInLeft 0.5s ease-out;
+  }
+
+  /* Bounce animation */
+  @keyframes bounce {
+
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+
+    50% {
+      transform: translateY(-10px);
+    }
+  }
+
+  .animate-bounce-slow {
+    animation: bounce 2s infinite;
+  }
+
+  /* Glow effect */
+  .glow {
+    box-shadow: 0 0 10px rgba(168, 85, 247, 0.5);
+    transition: box-shadow 0.3s ease;
+  }
+
+  .glow:hover {
+    box-shadow: 0 0 20px rgba(168, 85, 247, 0.8);
+  }
+
+  /* Professional Icon Styles */
+  .icon-success {
+    color: #10B981;
+    font-weight: bold;
+  }
+
+  .icon-warning {
+    color: #F59E0B;
+    font-weight: bold;
+  }
+
+  .icon-error {
+    color: #EF4444;
+    font-weight: bold;
+  }
+
+  .icon-info {
+    color: #3B82F6;
+    font-weight: bold;
+  }
+
+  .icon-primary {
+    color: #8B5CF6;
+    font-weight: bold;
+  }
+
+  /* Professional Gradient Headers */
+  .gradient-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    padding: 20px;
+    border-radius: 8px;
+    margin: 20px 0;
+  }
+
+  .gradient-header h2,
+  .gradient-header h3 {
+    color: white;
+    margin: 0;
+  }
+
+  .gradient-success {
+    background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+  }
+
+  .gradient-warning {
+    background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);
+  }
+
+  .gradient-error {
+    background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%);
+  }
+
+  /* Dark Mode Support for Documentation */
+  @media (prefers-color-scheme: dark) {
+    .gradient-header {
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+    }
+  }
+
+  /* Light Mode Support for Documentation */
+  @media (prefers-color-scheme: light) {
+    .gradient-header {
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+  }
+
+  /* Professional Checkbox Styles */
+  .checkbox-unchecked::before {
+    content: '☐';
+    color: #6B7280;
+    margin-right: 8px;
+  }
+
+  .checkbox-checked::before {
+    content: '✓';
+    color: #10B981;
+    margin-right: 8px;
+    font-weight: bold;
+  }
+
+  /* Professional Color Palette Display */
+  .color-swatch {
+    display: inline-block;
+    padding: 15px 30px;
+    border-radius: 8px;
+    font-weight: bold;
+    margin: 5px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    transition: transform 0.2s ease;
+  }
+
+  .color-swatch:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+  }
+}
