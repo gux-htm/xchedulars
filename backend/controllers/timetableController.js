@@ -230,6 +230,7 @@ const generateTimetable = async (req, res) => {
           ts.day_of_week as day,
           ts.id as time_slot_id,
           s.shift,
+          s.semester,
           c.type as course_type
       FROM slot_reservations sr
       JOIN course_requests cr ON sr.course_request_id = cr.id
@@ -267,6 +268,13 @@ const generateTimetable = async (req, res) => {
       );
 
       // Now, populate section_records
+      // Optimization: Create a map of section_id -> semester from the reservations query results
+      // to avoid N+1 queries inside the loop.
+      const sectionSemesterMap = new Map();
+      reservations.forEach(r => {
+        sectionSemesterMap.set(r.section_id, r.semester);
+      });
+
       const sectionRecords = [];
       const seenSectionCourse = new Set();
       for (const block of blocks) {
@@ -274,9 +282,9 @@ const generateTimetable = async (req, res) => {
         const key = `${section_id}-${course_id}`;
 
         if (!seenSectionCourse.has(key)) {
-          const [[section]] = await connection.query('SELECT semester FROM sections WHERE id = ?', [section_id]);
-          if (section) {
-            sectionRecords.push([section_id, course_id, teacher_id, section.semester]);
+          if (sectionSemesterMap.has(section_id)) {
+            const semester = sectionSemesterMap.get(section_id);
+            sectionRecords.push([section_id, course_id, teacher_id, semester]);
             seenSectionCourse.add(key);
           }
         }
