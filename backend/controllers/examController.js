@@ -207,9 +207,34 @@ const resetExams = async (req, res) => {
         "SELECT id FROM users WHERE role = 'instructor' AND status = 'approved'"
       );
       
-      for (let i = 0; i < exams.length; i++) {
-        const instructor = instructors[i % instructors.length];
-        await db.query('UPDATE exams SET invigilator_id = ? WHERE id = ?', [instructor.id, exams[i].id]);
+      if (exams.length > 0 && instructors.length > 0) {
+        // Batch update using CASE statement to avoid N+1 queries
+        const BATCH_SIZE = 1000;
+        for (let i = 0; i < exams.length; i += BATCH_SIZE) {
+          const batch = exams.slice(i, i + BATCH_SIZE);
+          const ids = [];
+          let caseStatement = 'CASE id';
+          const params = [];
+
+          batch.forEach((exam, index) => {
+            const globalIndex = i + index;
+            const instructor = instructors[globalIndex % instructors.length];
+
+            caseStatement += ' WHEN ? THEN ?';
+            params.push(exam.id, instructor.id);
+            ids.push(exam.id);
+          });
+
+          caseStatement += ' END';
+          // Add IDs for the IN clause
+          params.push(...ids);
+
+          // Construct the final query with the correct number of placeholders for IN clause
+          const placeholders = ids.map(() => '?').join(',');
+          const query = `UPDATE exams SET invigilator_id = ${caseStatement} WHERE id IN (${placeholders})`;
+
+          await db.query(query, params);
+        }
       }
       
       res.json({ message: 'Invigilators reassigned successfully' });
