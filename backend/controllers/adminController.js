@@ -49,8 +49,8 @@ const getMajors = async (req, res) => {
     const { program_id } = req.query;
 
     let query = `
-      SELECT m.*, p.name as program_name 
-      FROM majors m 
+      SELECT m.*, p.name as program_name
+      FROM majors m
       JOIN programs p ON m.program_id = p.id
     `;
     const params = [];
@@ -376,42 +376,75 @@ const assignCoursesToSection = async (req, res) => {
 
         await connection.beginTransaction();
 
+        // Deduplicate input course_ids
+        const uniqueCourseIds = [...new Set(course_ids)];
+
+        if (uniqueCourseIds.length === 0) {
+            await connection.commit();
+            return res.status(201).json({ message: 'No courses to assign', offeringIds: [] });
+        }
+
+        // 1. Check for existing offerings in bulk
+        const [existingOfferings] = await connection.query(
+            'SELECT course_id FROM course_offerings WHERE section_id = ? AND semester = ? AND course_id IN (?)',
+            [section_id, semester, uniqueCourseIds]
+        );
+
+        const existingCourseIds = new Set(existingOfferings.map(row => row.course_id));
+        const coursesToInsert = uniqueCourseIds.filter(id => !existingCourseIds.has(id));
+
         const newOfferingIds = [];
-        for (const course_id of course_ids) {
-            // Check for duplicates
-            const [existing] = await connection.query(
-                'SELECT id FROM course_offerings WHERE section_id = ? AND course_id = ? AND semester = ?',
-                [section_id, course_id, semester]
-            );
 
-            if (existing.length > 0) {
-                continue; // Skip duplicate
-            }
-
-            const [offeringResult] = await connection.query(
-                'INSERT INTO course_offerings (course_id, program_id, major_id, section_id, semester, intake, shift, academic_year, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                [course_id, program_id, major_id, section_id, semester, intake, shift, academic_year, created_by]
-            );
-            const offering_id = offeringResult.insertId;
-            newOfferingIds.push(offering_id);
+        if (coursesToInsert.length > 0) {
+            // 2. Bulk Insert Course Offerings
+            const offeringValues = coursesToInsert.map(course_id => [
+                course_id, program_id, major_id, section_id, semester, intake, shift, academic_year, created_by
+            ]);
 
             await connection.query(
-                'INSERT INTO section_course_history (section_id, offering_id, status) VALUES (?, ?, ?)',
-                [section_id, offering_id, 'pending']
+                'INSERT INTO course_offerings (course_id, program_id, major_id, section_id, semester, intake, shift, academic_year, created_by) VALUES ?',
+                [offeringValues]
             );
 
-            // AUTOMATICALLY ADD TO SECTION_RECORDS
-            // Check if record already exists
-            const [existingRecord] = await connection.query(
-                'SELECT id FROM section_records WHERE section_id = ? AND course_id = ?',
-                [section_id, course_id]
+            // 3. Retrieve IDs of newly inserted offerings
+            const [newOfferings] = await connection.query(
+                'SELECT id, course_id FROM course_offerings WHERE section_id = ? AND semester = ? AND course_id IN (?)',
+                [section_id, semester, coursesToInsert]
             );
 
-            if (existingRecord.length === 0) {
-                // Add to section_records automatically
+            // 4. Prepare Bulk Insert for History
+            const historyValues = [];
+
+            for (const offering of newOfferings) {
+                newOfferingIds.push(offering.id);
+                historyValues.push([section_id, offering.id, 'pending']);
+            }
+
+            if (historyValues.length > 0) {
                 await connection.query(
-                    'INSERT INTO section_records (section_id, course_id, semester, academic_year, status) VALUES (?, ?, ?, ?, ?)',
-                    [section_id, course_id, semester, academic_year, 'active']
+                    'INSERT INTO section_course_history (section_id, offering_id, status) VALUES ?',
+                    [historyValues]
+                );
+            }
+
+            // 5. Section Records Logic
+            // Check existing records for the courses we just inserted
+            const [existingRecords] = await connection.query(
+                'SELECT course_id FROM section_records WHERE section_id = ? AND course_id IN (?)',
+                [section_id, coursesToInsert]
+            );
+
+            const existingRecordCourseIds = new Set(existingRecords.map(r => r.course_id));
+            const recordsToInsert = coursesToInsert.filter(course_id => !existingRecordCourseIds.has(course_id));
+
+            if (recordsToInsert.length > 0) {
+                const recordValues = recordsToInsert.map(course_id => [
+                    section_id, course_id, semester, academic_year, 'active'
+                ]);
+
+                await connection.query(
+                    'INSERT INTO section_records (section_id, course_id, semester, academic_year, status) VALUES ?',
+                    [recordValues]
                 );
             }
         }
