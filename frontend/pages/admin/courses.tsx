@@ -226,12 +226,13 @@ export default function Courses() {
       const { program_id, ...courseData } = courseForm;
       
       if (editingCourse) {
-        // Note: updateCourse doesn't handle major_ids, only basic course fields
         await adminAPI.updateCourse(editingCourse.id, {
           name: courseData.name,
           code: courseData.code,
           credit_hours: courseData.credit_hours,
           type: courseData.type,
+          major_ids: courseData.major_ids,
+          applies_to_all_programs: courseData.applies_to_all_programs,
         });
         sounds.success();
         toast.success('Course updated successfully');
@@ -253,10 +254,16 @@ export default function Courses() {
   const handleEditCourse = (course: any) => {
     sounds.open();
     setEditingCourse(course);
-    const majorNames = course.major_names || [];
-    const majorIds = Array.isArray(majorNames) 
-      ? majors.filter(m => majorNames.includes(m.name)).map(m => Number(m.id))
-      : [];
+
+    const majorNamesStr = course.major_names || '';
+    const majorNamesList = typeof majorNamesStr === 'string'
+      ? majorNamesStr.split(', ')
+      : (Array.isArray(majorNamesStr) ? majorNamesStr : []);
+
+    const majorIds = majors
+      .filter(m => majorNamesList.includes(m.name))
+      .map(m => Number(m.id));
+
     setCourseForm({
       name: course.name,
       code: course.code,
@@ -264,7 +271,7 @@ export default function Courses() {
       type: course.type,
       major_ids: majorIds,
       program_id: course.program_id || '',
-      applies_to_all_programs: false,
+      applies_to_all_programs: Boolean(course.applies_to_all_programs),
     });
     setShowCourseForm(true);
   };

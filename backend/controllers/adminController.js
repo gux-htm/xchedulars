@@ -162,6 +162,7 @@ const getCourses = async (req, res) => {
 
     const dataQuery = `
       SELECT c.id, c.name, c.code, c.credit_hours, c.type,
+             MAX(cmm.applies_to_all_programs) as applies_to_all_programs,
              GROUP_CONCAT(DISTINCT m.name SEPARATOR ', ') as major_names,
              GROUP_CONCAT(DISTINCT p.name SEPARATOR ', ') as program_names
       FROM courses c
@@ -190,17 +191,53 @@ const getCourses = async (req, res) => {
 
 // Update Course (name, code, credit_hours, type) and optionally offering (major_id, semester)
 const updateCourse = async (req, res) => {
+  const connection = await db.getConnection();
   try {
     const { id } = req.params;
-    const { name, code, credit_hours, type } = req.body;
-    await db.query(
+    const { name, code, credit_hours, type, major_ids, applies_to_all_programs } = req.body;
+
+    await connection.beginTransaction();
+
+    // 1. Update course details
+    await connection.query(
       'UPDATE courses SET name = ?, code = ?, credit_hours = ?, type = ? WHERE id = ?',
       [name, code, credit_hours, type, id]
     );
+
+    // 2. Update major mappings
+    // First, remove existing mappings
+    await connection.query('DELETE FROM course_major_map WHERE course_id = ?', [id]);
+
+    // Then, insert new mappings if any
+    if (applies_to_all_programs) {
+      const [bsMajors] = await connection.query(`
+          SELECT m.id FROM majors m
+          JOIN programs p ON m.program_id = p.id
+          WHERE p.name LIKE 'BS-%'
+      `);
+      if (bsMajors.length > 0) {
+        const majorMappings = bsMajors.map(major => [id, major.id, 1]);
+        await connection.query(
+          'INSERT INTO course_major_map (course_id, major_id, applies_to_all_programs) VALUES ?',
+          [majorMappings]
+        );
+      }
+    } else if (major_ids && major_ids.length > 0) {
+      const majorMappings = major_ids.map(majorId => [id, majorId, 0]);
+      await connection.query(
+        'INSERT INTO course_major_map (course_id, major_id, applies_to_all_programs) VALUES ?',
+        [majorMappings]
+      );
+    }
+
+    await connection.commit();
     res.json({ message: 'Course updated' });
   } catch (error) {
+    if (connection) await connection.rollback();
     console.error('Update course error:', error);
     res.status(500).json({ error: 'Failed to update course' });
+  } finally {
+    if (connection) connection.release();
   }
 };
 
