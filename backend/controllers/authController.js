@@ -141,8 +141,8 @@ const registerStudent = async (req, res) => {
     try {
       await sendEmail({
         email: email,
-        subject: 'Registration Successful - EmersonSched',
-        message: `Dear ${name},\n\nYour registration has been successful!\n\nRoll Number: ${rollNumber}\nSection: ${sections[0].name}\n\nYou will receive your timetable and any updates via email.\n\nBest regards,\nEmersonSched Team`
+        subject: 'Registration Successful - Xchedular',
+        message: `Dear ${name},\n\nYour registration has been successful!\n\nRoll Number: ${rollNumber}\nSection: ${sections[0].name}\n\nYou will receive your timetable and any updates via email.\n\nBest regards,\nXchedular Team`
       });
     } catch (emailError) {
       console.error('Email sending failed:', emailError);

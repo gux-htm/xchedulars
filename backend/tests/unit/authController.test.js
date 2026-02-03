@@ -188,6 +188,31 @@ describe('Auth Controller', () => {
       );
     });
 
+    it('should lock the account after too many failed attempts', async () => {
+      db.query.mockResolvedValue([[{
+        id: 'user-id',
+        email: 'test@example.com',
+        status: 'approved',
+        password_hash: 'hashed-password',
+        loginAttempts: 5,
+        lastFailedLogin: new Date(Date.now() - 5 * 60 * 1000).toISOString()
+      }]]);
+
+      await authController.login(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(423);
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+        error: expect.stringContaining('Account locked'),
+        lockoutRemaining: expect.any(Number)
+      }));
+      expect(securityLogger.logSecurityEvent).toHaveBeenCalledWith(
+        'user-id',
+        securityLogger.SECURITY_EVENTS.LOGIN_FAILED,
+        expect.objectContaining({ reason: 'Account locked' }),
+        req
+      );
+    });
+
     it('should login successfully', async () => {
       const user = { 
         id: 'user-id', 

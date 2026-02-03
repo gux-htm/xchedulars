@@ -1,4 +1,4 @@
-# EmersonSched - Complete System Structure
+# Xchedular - Complete System Structure
 
 <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; border-radius: 12px; margin: 20px 0; text-align: center;">
   <h2 style="color: white; margin: 0;">University Timetable Management System</h2>
@@ -24,7 +24,7 @@
 
 ## System Overview
 
-EmersonSched is a comprehensive university timetable management system that automates scheduling, resource allocation, instructor workload management, and exam scheduling using Block Theory algorithm.
+Xchedular is a comprehensive university timetable management system that automates scheduling, resource allocation, instructor workload management, and exam scheduling using Block Theory algorithm.
 
 ### Architecture Pattern
 ```
@@ -101,7 +101,7 @@ EmersonSched is a comprehensive university timetable management system that auto
 ## Directory Structure
 
 ```
-EmersonSched-main/
+Xchedular/
 │
 ├── backend/                          # Server-side application
 │   ├── config/                       # Configuration files
@@ -664,10 +664,10 @@ cd frontend && npm run dev
 ---
 
 <div style="background: linear-gradient(135deg, #10B981 0%, #059669 100%); padding: 20px; border-radius: 8px; margin: 20px 0; text-align: center;">
-  <p style="color: white; font-size: 1.1em; margin: 0;"><strong>EmersonSched System Structure Documentation</strong></p>
+  <p style="color: white; font-size: 1.1em; margin: 0;"><strong>Xchedular System Structure Documentation</strong></p>
   <p style="color: white; margin: 10px 0 0 0;">Version 1.0.0 | Last Updated: December 2024</p>
 </div>
 
 ---
 
-**Maintained By**: EmersonSched Development Team
+**Maintained By**: Xchedular Development Team
