@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Home, Users, Book, Calendar, Settings, Menu, X, Send, GraduationCap } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useState } from 'react';
-import ProfileDropdown from './ProfileDropdown';
+import ProfileDropdown from './ui/ProfileDropdown';
 import { ThemeToggle } from './ThemeToggle';
 import { SoundToggle } from './SoundToggle';
 import { cn } from '@/lib/utils';

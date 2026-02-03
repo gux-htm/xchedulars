@@ -10,7 +10,6 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { User, Mail, Briefcase, Award, Image as ImageIcon, Camera, Save, Shield } from 'lucide-react';
-import { Separator } from '@/components/ui/select'; // Re-using separator style if available, or div
 
 const MotionDiv = motion.div as any;
 const MotionCard = motion(Card) as any;
