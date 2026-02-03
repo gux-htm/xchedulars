@@ -8,36 +8,36 @@ const generateTimetableHTMLFile = require('../utils/generateTimetableHTML');
 const generateCourseRequests = async (req, res) => {
   try {
     const { semester, major_id } = req.body;
-    
+
     // Get all courses for the semester/major
     let query = 'SELECT c.*, s.id as section_id FROM courses c CROSS JOIN sections s WHERE c.semester = s.semester';
     const params = [];
-    
+
     if (semester) {
       query += ' AND c.semester = ?';
       params.push(semester);
     }
-    
+
     if (major_id) {
       query += ' AND c.major_id = ? AND s.major_id = ?';
       params.push(major_id, major_id);
     }
-    
+
     const [courseSections] = await db.query(query, params);
-    
+
     // Create course requests
     const requests = [];
     for (const cs of courseSections) {
       requests.push([cs.id, cs.section_id, null, 'pending', null]);
     }
-    
+
     if (requests.length > 0) {
       await db.query(
         'INSERT INTO course_requests (course_id, section_id, instructor_id, status, preferences) VALUES ?',
         [requests]
       );
     }
-    
+
     res.json({ message: `Generated ${requests.length} course requests` });
   } catch (error) {
     console.error('Generate course requests error:', error);
@@ -49,9 +49,9 @@ const generateCourseRequests = async (req, res) => {
 const getCourseRequests = async (req, res) => {
   try {
     const { status, instructor_id, program, major, semester, section } = req.query;
-    
+
     let query = `
-      SELECT cr.*, 
+      SELECT cr.*,
              co.id as offering_id, co.intake, co.academic_year,
              c.name as course_name, c.code as course_code, c.credit_hours,
              s.name as section_name, s.shift,
@@ -68,12 +68,12 @@ const getCourseRequests = async (req, res) => {
       WHERE 1=1
     `;
     const params = [];
-    
+
     if (status) {
       query += ' AND cr.status = ?';
       params.push(status);
     }
-    
+
     if (instructor_id) {
       query += ' AND cr.instructor_id = ?';
       params.push(instructor_id);
@@ -95,9 +95,9 @@ const getCourseRequests = async (req, res) => {
         query += ' AND s.id = ?';
         params.push(section);
     }
-    
+
     query += ' ORDER BY cr.created_at DESC';
-    
+
     const [requests] = await db.query(query, params);
     res.json({ requests });
   } catch (error) {
@@ -177,33 +177,33 @@ const undoCourseAcceptance = async (req, res) => {
   try {
     const { request_id } = req.body;
     const instructor_id = req.user.id;
-    
+
     // Check if request was accepted by this instructor
     const [requests] = await db.query(
       'SELECT * FROM course_requests WHERE id = ? AND instructor_id = ? AND status = ?',
       [request_id, instructor_id, 'accepted']
     );
-    
+
     if (requests.length === 0) {
       return res.status(404).json({ error: 'Request not found or already processed' });
     }
-    
+
     const request = requests[0];
     const acceptedAt = new Date(request.accepted_at);
     const now = new Date();
     const diffSeconds = (now - acceptedAt) / 1000;
-    
+
     // Check 10-second window
     if (diffSeconds > 10) {
       return res.status(400).json({ error: 'Undo window expired (10 seconds)' });
     }
-    
+
     // Undo acceptance
     await db.query(
       'UPDATE course_requests SET instructor_id = NULL, status = ?, preferences = NULL, accepted_at = NULL WHERE id = ?',
       ['pending', request_id]
     );
-    
+
     res.json({ message: 'Course acceptance undone successfully' });
   } catch (error) {
     console.error('Undo course acceptance error:', error);
@@ -298,7 +298,7 @@ const generateTimetable = async (req, res) => {
     }
 
     await connection.commit();
-    
+
     // Send timetable emails to all students
     try {
       await sendTimetableEmails(connection);
@@ -306,7 +306,7 @@ const generateTimetable = async (req, res) => {
       console.error('Failed to send timetable emails:', emailError);
       // Don't fail the timetable generation if emails fail
     }
-    
+
     res.json({
       message: 'Timetable generated successfully from confirmed reservations',
       blocksCreated: blocks.length
@@ -325,7 +325,7 @@ const generateTimetable = async (req, res) => {
 const sendTimetableEmails = async (connection) => {
   // Get all students with their sections from students table
   const [students] = await connection.query(`
-    SELECT st.id, st.name, st.email, st.roll_number, s.id as section_id, s.name as section_name, 
+    SELECT st.id, st.name, st.email, st.roll_number, s.id as section_id, s.name as section_name,
            m.name as major_name, p.name as program_name
     FROM students st
     JOIN sections s ON st.section_id = s.id
@@ -333,9 +333,21 @@ const sendTimetableEmails = async (connection) => {
     JOIN programs p ON m.program_id = p.id
     WHERE st.status = 'active'
   `);
-  
+
+  // Group students by section
+  const studentsBySection = {};
   for (const student of students) {
-    // Get timetable for this student's section
+    if (!studentsBySection[student.section_id]) {
+      studentsBySection[student.section_id] = [];
+    }
+    studentsBySection[student.section_id].push(student);
+  }
+
+  // Process each section
+  for (const sectionId in studentsBySection) {
+    const sectionStudents = studentsBySection[sectionId];
+
+    // Fetch timetable ONCE per section
     const [timetable] = await connection.query(`
       SELECT b.day, ts.slot_label, ts.start_time, ts.end_time,
              c.name as course_name, c.code as course_code,
@@ -347,51 +359,59 @@ const sendTimetableEmails = async (connection) => {
       JOIN rooms r ON b.room_id = r.id
       JOIN time_slots ts ON b.time_slot_id = ts.id
       WHERE b.section_id = ?
-      ORDER BY 
+      ORDER BY
         FIELD(b.day, 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'),
         ts.start_time
-    `, [student.section_id]);
-    
+    `, [sectionId]);
+
     if (timetable.length === 0) continue;
-    
-    // Generate HTML timetable for email body
-    const htmlContent = generateTimetableHTML(student, timetable);
-    
-    // Generate HTML file attachment
-    let htmlFileContent;
-    try {
-      console.log(`📄 Generating HTML file for ${student.name} (${student.email})...`);
-      htmlFileContent = generateTimetableHTMLFile(student, timetable);
-      const htmlBuffer = Buffer.from(htmlFileContent, 'utf-8');
-      console.log(`✅ HTML file generated: ${(htmlBuffer.length / 1024).toFixed(2)} KB`);
-    } catch (htmlError) {
-      console.error(`❌ Failed to generate HTML file for ${student.email}:`, htmlError.message);
-    }
-    
-    // Send email with HTML file attachment
-    try {
-      const emailOptions = {
-        email: student.email,
-        subject: `Your Timetable - ${student.program_name} ${student.major_name}`,
-        html: htmlContent
-      };
 
-      // Add HTML file attachment if generated successfully
-      if (htmlFileContent) {
-        const filename = `Timetable_${student.section_name}_${student.roll_number}.html`;
-        const htmlBuffer = Buffer.from(htmlFileContent, 'utf-8');
-        emailOptions.attachments = [{
-          filename: filename,
-          content: htmlBuffer,
-          contentType: 'text/html'
-        }];
-        console.log(`📎 Attaching HTML file: ${filename} (${(htmlBuffer.length / 1024).toFixed(2)} KB)`);
-      }
+    // Process students in batches to control concurrency
+    const BATCH_SIZE = 20;
+    for (let i = 0; i < sectionStudents.length; i += BATCH_SIZE) {
+      const batch = sectionStudents.slice(i, i + BATCH_SIZE);
 
-      await sendEmail(emailOptions);
-      console.log(`✅ Timetable email sent to ${student.email} (${student.name})`);
-    } catch (error) {
-      console.error(`❌ Failed to send email to ${student.email}:`, error.message);
+      await Promise.all(batch.map(async (student) => {
+        // Generate HTML timetable for email body
+        const htmlContent = generateTimetableHTML(student, timetable);
+
+        // Generate HTML file attachment
+        let htmlFileContent;
+        try {
+          console.log(`📄 Generating HTML file for ${student.name} (${student.email})...`);
+          htmlFileContent = generateTimetableHTMLFile(student, timetable);
+          const htmlBuffer = Buffer.from(htmlFileContent, 'utf-8');
+          console.log(`✅ HTML file generated: ${(htmlBuffer.length / 1024).toFixed(2)} KB`);
+        } catch (htmlError) {
+          console.error(`❌ Failed to generate HTML file for ${student.email}:`, htmlError.message);
+        }
+
+        // Send email with HTML file attachment
+        try {
+          const emailOptions = {
+            email: student.email,
+            subject: `Your Timetable - ${student.program_name} ${student.major_name}`,
+            html: htmlContent
+          };
+
+          // Add HTML file attachment if generated successfully
+          if (htmlFileContent) {
+            const filename = `Timetable_${student.section_name}_${student.roll_number}.html`;
+            const htmlBuffer = Buffer.from(htmlFileContent, 'utf-8');
+            emailOptions.attachments = [{
+              filename: filename,
+              content: htmlBuffer,
+              contentType: 'text/html'
+            }];
+            console.log(`📎 Attaching HTML file: ${filename} (${(htmlBuffer.length / 1024).toFixed(2)} KB)`);
+          }
+
+          await sendEmail(emailOptions);
+          console.log(`✅ Timetable email sent to ${student.email} (${student.name})`);
+        } catch (error) {
+          console.error(`❌ Failed to send email to ${student.email}:`, error.message);
+        }
+      }));
     }
   }
 };
@@ -400,11 +420,11 @@ const sendTimetableEmails = async (connection) => {
 const generateTimetableHTML = (student, timetable) => {
   const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
   const groupedByDay = {};
-  
+
   days.forEach(day => {
     groupedByDay[day] = timetable.filter(t => t.day.toLowerCase() === day);
   });
-  
+
   let timetableRows = '';
   days.forEach(day => {
     const classes = groupedByDay[day];
@@ -422,7 +442,7 @@ const generateTimetableHTML = (student, timetable) => {
       });
     }
   });
-  
+
   const html = `
 <!DOCTYPE html>
 <html>
@@ -442,7 +462,7 @@ const generateTimetableHTML = (student, timetable) => {
               <p style="margin: 10px 0 0 0; color: #ffffff; font-size: 16px;">EmersonSched</p>
             </td>
           </tr>
-          
+
           <!-- Content -->
           <tr>
             <td style="padding: 40px 30px;">
@@ -450,7 +470,7 @@ const generateTimetableHTML = (student, timetable) => {
               <p style="margin: 0 0 30px 0; font-size: 16px; color: #666666; line-height: 1.6;">
                 Your timetable has been generated! Below are your class details for this semester.
               </p>
-              
+
               <!-- Student Info -->
               <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f8f9fa; border-radius: 6px; margin-bottom: 30px;">
                 <tr>
@@ -476,7 +496,7 @@ const generateTimetableHTML = (student, timetable) => {
                   </td>
                 </tr>
               </table>
-              
+
               <!-- Timetable -->
               <h2 style="color: #667eea; font-size: 20px; margin: 0 0 20px 0;">📅 Your Weekly Schedule</h2>
               <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse: collapse;">
@@ -493,7 +513,7 @@ const generateTimetableHTML = (student, timetable) => {
                   ${timetableRows}
                 </tbody>
               </table>
-              
+
               <!-- Info Box -->
               <table width="100%" cellpadding="0" cellspacing="0" style="margin-top: 30px; background-color: #d1ecf1; border-radius: 6px;">
                 <tr>
@@ -505,7 +525,7 @@ const generateTimetableHTML = (student, timetable) => {
                   </td>
                 </tr>
               </table>
-              
+
               <table width="100%" cellpadding="0" cellspacing="0" style="margin-top: 15px; background-color: #fff3cd; border-radius: 6px;">
                 <tr>
                   <td style="padding: 20px;">
@@ -516,7 +536,7 @@ const generateTimetableHTML = (student, timetable) => {
                   </td>
                 </tr>
               </table>
-              
+
               <!-- Button -->
               <table width="100%" cellpadding="0" cellspacing="0" style="margin-top: 30px;">
                 <tr>
@@ -529,7 +549,7 @@ const generateTimetableHTML = (student, timetable) => {
               </table>
             </td>
           </tr>
-          
+
           <!-- Footer -->
           <tr>
             <td style="background-color: #f8f9fa; padding: 20px 30px; text-align: center; border-top: 1px solid #e0e0e0;">
@@ -549,7 +569,7 @@ const generateTimetableHTML = (student, timetable) => {
 </body>
 </html>
   `;
-  
+
   return html;
 };
 
@@ -557,9 +577,9 @@ const generateTimetableHTML = (student, timetable) => {
 const getTimetable = async (req, res) => {
   try {
     const { section_id, teacher_id, room_id, shift, intake } = req.query;
-    
+
     let query = `
-      SELECT b.*, 
+      SELECT b.*,
              u.name as teacher_name,
              c.name as course_name, c.code as course_code, c.type,
              s.name as section_name, s.semester, s.intake,
@@ -576,36 +596,36 @@ const getTimetable = async (req, res) => {
       WHERE 1=1
     `;
     const params = [];
-    
+
     if (section_id) {
       query += ' AND b.section_id = ?';
       params.push(section_id);
     }
-    
+
     if (teacher_id) {
       query += ' AND b.teacher_id = ?';
       params.push(teacher_id);
     }
-    
+
     if (room_id) {
       query += ' AND b.room_id = ?';
       params.push(room_id);
     }
-    
+
     if (shift) {
       query += ' AND b.shift = ?';
       params.push(shift);
     }
-    
+
     if (intake) {
       query += ' AND s.intake = ?';
       params.push(intake);
     }
-    
+
     query += ' ORDER BY b.day, ts.start_time';
-    
+
     const [blocks] = await db.query(query, params);
-    
+
     // Keep day names lowercase to match frontend filter logic
     res.json({ timetable: blocks });
   } catch (error) {
@@ -633,10 +653,10 @@ const rescheduleClass = async (req, res) => {
 
     // Get the course request with section details
     const [[courseRequest]] = await connection.query(
-      `SELECT cr.*, s.shift, s.semester 
-       FROM course_requests cr 
-       JOIN sections s ON cr.section_id = s.id 
-       WHERE cr.id = ? AND cr.instructor_id = ?`, 
+      `SELECT cr.*, s.shift, s.semester
+       FROM course_requests cr
+       JOIN sections s ON cr.section_id = s.id
+       WHERE cr.id = ? AND cr.instructor_id = ?`,
       [course_request_id, instructor_id]
     );
 
@@ -692,7 +712,7 @@ const rescheduleClass = async (req, res) => {
          WHERE r.id NOT IN (
            SELECT ra.room_id FROM room_assignments ra
            JOIN slot_reservations sr ON ra.id = sr.room_assignment_id
-           WHERE ra.time_slot_id = ? 
+           WHERE ra.time_slot_id = ?
            AND sr.status = 'reserved'
            AND sr.course_request_id != ?
          )
@@ -723,9 +743,9 @@ const rescheduleClass = async (req, res) => {
         [course_request_id, instructor_id, slot.time_slot_id, roomAssignment.insertId]
       );
     }
-    
+
     console.log('✅ New reservations created');
-    
+
     // Update the course_requests table with the new schedule
     await connection.query(
       'UPDATE course_requests SET status = ?, preferences = ? WHERE id = ?',
@@ -751,7 +771,7 @@ const rescheduleClass = async (req, res) => {
         [slot.time_slot_id, courseRequest.section_id]
       );
       const [[course]] = await connection.query('SELECT type FROM courses WHERE id = ?', [courseRequest.course_id]);
-      
+
       if (timeSlot && room && course) {
         await connection.query(
           'INSERT INTO blocks (teacher_id, course_id, section_id, room_id, day, time_slot_id, shift, type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
@@ -778,14 +798,14 @@ const rescheduleClass = async (req, res) => {
         JOIN programs p ON m.program_id = p.id
         WHERE st.section_id = ? AND st.status = 'active'
       `, [courseRequest.section_id]);
-      
+
       console.log(`📧 Found ${students.length} students to notify`);
-      
+
       if (students.length > 0) {
         // Get course details for notification
         const [[course]] = await db.query('SELECT name, code FROM courses WHERE id = ?', [courseRequest.course_id]);
         const [[instructor]] = await db.query('SELECT name FROM users WHERE id = ?', [instructor_id]);
-        
+
         for (const student of students) {
           try {
             // Get updated timetable for this student's section
@@ -800,14 +820,14 @@ const rescheduleClass = async (req, res) => {
               JOIN rooms r ON b.room_id = r.id
               JOIN time_slots ts ON b.time_slot_id = ts.id
               WHERE b.section_id = ?
-              ORDER BY 
+              ORDER BY
                 FIELD(b.day, 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'),
                 ts.start_time
             `, [student.section_id]);
 
             // Generate HTML email body
             const htmlContent = generateTimetableHTML(student, timetable);
-            
+
             // Generate HTML file attachment
             let htmlFileContent;
             try {
@@ -865,7 +885,7 @@ const rescheduleClass = async (req, res) => {
 const resetTimetable = async (req, res) => {
   try {
     const { type } = req.body; // 'slots', 'assignments', 'full'
-    
+
     if (type === 'slots') {
       await db.query('DELETE FROM time_slots');
     } else if (type === 'assignments') {
@@ -876,7 +896,7 @@ const resetTimetable = async (req, res) => {
       await db.query('DELETE FROM course_requests');
       await db.query('DELETE FROM time_slots');
     }
-    
+
     res.json({ message: `Timetable reset (${type}) completed successfully` });
   } catch (error) {
     console.error('Reset timetable error:', error);
@@ -889,17 +909,17 @@ const getInstructorSchedule = async (req, res) => {
   try {
     const instructor_id = req.params.instructor_id || req.user.id;
     const { from, to } = req.query;
-    
+
     // Validate instructor_id is provided and user has permission
     if (!instructor_id) {
       return res.status(400).json({ error: 'Instructor ID is required' });
     }
-    
+
     // Check if user can access this instructor's schedule (instructor themselves or admin)
     if (req.user.role !== 'admin' && req.user.id !== instructor_id) {
       return res.status(403).json({ error: 'Access denied' });
     }
-    
+
     let query = `
       SELECT b.id AS assignment_id,
              s.id AS section_id,
@@ -928,23 +948,23 @@ const getInstructorSchedule = async (req, res) => {
       WHERE b.teacher_id = ?
     `;
     const params = [instructor_id];
-    
+
     // Apply date filters if provided
     if (from) {
       query += ' AND b.created_at >= ?';
       params.push(from);
     }
-    
+
     if (to) {
       query += ' AND b.created_at <= ?';
       params.push(to);
     }
-    
+
     query += ' ORDER BY b.day, ts.start_time';
-    
+
     const [schedule] = await db.query(query, params);
-    
-    res.json({ 
+
+    res.json({
       schedule,
       instructor_id,
       total_classes: schedule.length
@@ -960,32 +980,32 @@ const getAvailableSlotsForRequest = async (req, res) => {
   try {
     const { request_id } = req.params;
     const instructor_id = req.query.instructor_id || req.user.id;
-    
+
     if (!request_id || !instructor_id) {
       return res.status(400).json({ error: 'Request ID and instructor ID are required' });
     }
-    
+
     // Get course request details
     const [requests] = await db.query(
-      `SELECT cr.*, s.shift, s.semester 
-       FROM course_requests cr 
-       JOIN sections s ON cr.section_id = s.id 
+      `SELECT cr.*, s.shift, s.semester
+       FROM course_requests cr
+       JOIN sections s ON cr.section_id = s.id
        WHERE cr.id = ?`,
       [request_id]
     );
-    
+
     if (requests.length === 0) {
       return res.status(404).json({ error: 'Course request not found' });
     }
-    
+
     const request = requests[0];
-    
+
     // Get candidate slots for this shift
     const [candidateSlots] = await db.query(
       'SELECT * FROM time_slots WHERE shift = ? ORDER BY start_time',
       [request.shift]
     );
-    
+
     // Get slots already taken for this section (by any instructor)
     const [sectionTakenSlots] = await db.query(
       `SELECT DISTINCT ts.id as time_slot_id, u.name as instructor_name
@@ -995,10 +1015,10 @@ const getAvailableSlotsForRequest = async (req, res) => {
        WHERE b.section_id = ?`,
       [request.section_id]
     );
-    
+
     // Get slots occupied by this instructor (any section)
     const [instructorBusySlots] = await db.query(
-      `SELECT DISTINCT ts.id as time_slot_id, 
+      `SELECT DISTINCT ts.id as time_slot_id,
               CONCAT(c.code, ' - ', s.name) as conflicting_class
        FROM blocks b
        JOIN time_slots ts ON b.time_slot_id = ts.id
@@ -1007,26 +1027,26 @@ const getAvailableSlotsForRequest = async (req, res) => {
        WHERE b.teacher_id = ?`,
       [instructor_id]
     );
-    
+
     // Create maps for blocked slots with reasons
     const sectionBlockedMap = new Map();
     sectionTakenSlots.forEach(slot => {
       sectionBlockedMap.set(slot.time_slot_id, `Already assigned to ${slot.instructor_name} for this section`);
     });
-    
+
     const instructorBlockedMap = new Map();
     instructorBusySlots.forEach(slot => {
       instructorBlockedMap.set(slot.time_slot_id, `You already have a class at this time: ${slot.conflicting_class}`);
     });
-    
+
     // Categorize slots
     const availableSlots = [];
     const blockedSlots = [];
-    
+
     candidateSlots.forEach(slot => {
       const sectionBlocked = sectionBlockedMap.has(slot.id);
       const instructorBlocked = instructorBlockedMap.has(slot.id);
-      
+
       if (sectionBlocked || instructorBlocked) {
         blockedSlots.push({
           ...slot,
@@ -1037,7 +1057,7 @@ const getAvailableSlotsForRequest = async (req, res) => {
         availableSlots.push(slot);
       }
     });
-    
+
     res.json({
       request_id: parseInt(request_id),
       instructor_id,
@@ -1047,7 +1067,7 @@ const getAvailableSlotsForRequest = async (req, res) => {
       total_available: availableSlots.length,
       total_blocked: blockedSlots.length
     });
-    
+
   } catch (error) {
     console.error('Get available slots for request error:', error);
     res.status(500).json({ error: 'Failed to get available slots' });
@@ -1060,44 +1080,44 @@ const acceptCourseRequest = async (req, res) => {
   try {
     const { request_id, time_slot_ids } = req.body;
     const instructor_id = req.user.id;
-    
+
     if (!request_id || !time_slot_ids || !Array.isArray(time_slot_ids) || time_slot_ids.length === 0) {
       return res.status(400).json({ error: 'Request ID and time slot IDs are required' });
     }
-    
+
     await connection.beginTransaction();
-    
+
     // Get and lock the course request
     const [requests] = await connection.query(
       'SELECT * FROM course_requests WHERE id = ? AND status = ? FOR UPDATE',
       [request_id, 'pending']
     );
-    
+
     if (requests.length === 0) {
       await connection.rollback();
       return res.status(404).json({ error: 'Course request not found or already processed' });
     }
-    
+
     const request = requests[0];
-    
+
     // Atomic conflict checking for each slot
     for (const time_slot_id of time_slot_ids) {
       // Check if slot is already taken for this section
       const [sectionConflict] = await connection.query(
-        `SELECT b.id, u.name as instructor_name 
-         FROM blocks b 
+        `SELECT b.id, u.name as instructor_name
+         FROM blocks b
          JOIN users u ON b.teacher_id = u.id
          WHERE b.section_id = ? AND b.time_slot_id = ? FOR UPDATE`,
         [request.section_id, time_slot_id]
       );
-      
+
       if (sectionConflict.length > 0) {
         await connection.rollback();
-        return res.status(409).json({ 
-          error: `Slot already taken for this section by ${sectionConflict[0].instructor_name}` 
+        return res.status(409).json({
+          error: `Slot already taken for this section by ${sectionConflict[0].instructor_name}`
         });
       }
-      
+
       // Check if instructor is busy at this slot
       const [instructorConflict] = await connection.query(
         `SELECT b.id, c.code as course_code, s.name as section_name
@@ -1107,15 +1127,15 @@ const acceptCourseRequest = async (req, res) => {
          WHERE b.teacher_id = ? AND b.time_slot_id = ? FOR UPDATE`,
         [instructor_id, time_slot_id]
       );
-      
+
       if (instructorConflict.length > 0) {
         await connection.rollback();
-        return res.status(409).json({ 
-          error: `You are busy at this time with ${instructorConflict[0].course_code} - ${instructorConflict[0].section_name}` 
+        return res.status(409).json({
+          error: `You are busy at this time with ${instructorConflict[0].course_code} - ${instructorConflict[0].section_name}`
         });
       }
     }
-    
+
     // All slots are available, proceed with assignment
     for (const time_slot_id of time_slot_ids) {
       // Find available room
@@ -1129,35 +1149,35 @@ const acceptCourseRequest = async (req, res) => {
          LIMIT 1`,
         [time_slot_id, request.shift]
       );
-      
+
       if (availableRooms.length === 0) {
         await connection.rollback();
-        return res.status(409).json({ 
-          error: `No available rooms for time slot ${time_slot_id}` 
+        return res.status(409).json({
+          error: `No available rooms for time slot ${time_slot_id}`
         });
       }
-      
+
       const room_id = availableRooms[0].id;
-      
+
       // Get time slot and course details for block creation
       const [[timeSlot]] = await connection.query(
-        'SELECT day_of_week FROM time_slots WHERE id = ?', 
+        'SELECT day_of_week FROM time_slots WHERE id = ?',
         [time_slot_id]
       );
-      
+
       const [[course]] = await connection.query(
-        'SELECT type FROM courses WHERE id = ?', 
+        'SELECT type FROM courses WHERE id = ?',
         [request.course_id]
       );
-      
+
       // Create block (assignment)
       await connection.query(
         `INSERT INTO blocks (teacher_id, course_id, section_id, room_id, day, time_slot_id, shift, type)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          instructor_id, 
-          request.course_id, 
-          request.section_id, 
+          instructor_id,
+          request.course_id,
+          request.section_id,
           room_id,
           timeSlot.day_of_week.toLowerCase(),
           time_slot_id,
@@ -1166,21 +1186,21 @@ const acceptCourseRequest = async (req, res) => {
         ]
       );
     }
-    
+
     // Update course request status
     await connection.query(
       'UPDATE course_requests SET instructor_id = ?, status = ?, accepted_at = NOW() WHERE id = ?',
       [instructor_id, 'accepted', request_id]
     );
-    
+
     await connection.commit();
-    
-    res.json({ 
+
+    res.json({
       message: 'Course request accepted successfully',
       request_id: parseInt(request_id),
       slots_assigned: time_slot_ids.length
     });
-    
+
   } catch (error) {
     if (connection) await connection.rollback();
     console.error('Accept course request error:', error);
