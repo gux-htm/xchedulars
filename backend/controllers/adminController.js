@@ -49,8 +49,8 @@ const getMajors = async (req, res) => {
     const { program_id } = req.query;
 
     let query = `
-      SELECT m.*, p.name as program_name 
-      FROM majors m 
+      SELECT m.*, p.name as program_name
+      FROM majors m
       JOIN programs p ON m.program_id = p.id
     `;
     const params = [];
@@ -554,19 +554,33 @@ const promoteSection = async (req, res) => {
             [section_id]
         );
 
-        if (promote_courses) {
-            for (const offering of currentOfferings) {
-                const [newOfferingResult] = await connection.query(
-                    'INSERT INTO course_offerings (course_id, section_id, semester, intake, shift, academic_year, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                    [offering.course_id, section_id, new_semester, offering.intake, offering.shift, offering.academic_year, created_by]
-                );
-                const new_offering_id = newOfferingResult.insertId;
+        if (promote_courses && currentOfferings.length > 0) {
+            const offeringsValues = currentOfferings.map(offering => [
+                offering.course_id,
+                section_id,
+                new_semester,
+                offering.intake,
+                offering.shift,
+                offering.academic_year,
+                created_by
+            ]);
 
-                await connection.query(
-                    'INSERT INTO section_course_history (section_id, offering_id, status) VALUES (?, ?, ?)',
-                    [section_id, new_offering_id, 'pending']
-                );
-            }
+            const [newOfferingsResult] = await connection.query(
+                'INSERT INTO course_offerings (course_id, section_id, semester, intake, shift, academic_year, created_by) VALUES ?',
+                [offeringsValues]
+            );
+
+            const startId = newOfferingsResult.insertId;
+            const historyValues = currentOfferings.map((_, index) => [
+                section_id,
+                startId + index,
+                'pending'
+            ]);
+
+            await connection.query(
+                'INSERT INTO section_course_history (section_id, offering_id, status) VALUES ?',
+                [historyValues]
+            );
         }
 
         // Update the section's semester
